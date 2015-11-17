@@ -1,15 +1,22 @@
 ---
-title: "Exercise Prediction"
-author: "SoniaLebofsky"
+title: "Weight Lifting Prediction"
+author: "Sonia Lebofsky"
 output: html_document
 ---
 
 ### Executive Summary
 
-Brief explanation here of what the problem is asking for. 
+The following analysis involves building a prediction model from a weight lifting exercise dataset to predict whether or not a subject is lifting a barbell correctly. The experiment (as described at [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har)) involved placing accelerometers on a subjects belt, forearm, and arm and asking the subject to perform barbell lifts correctly and incorrectly in 5 different ways. The 5 different classes of barbell lift are as follows:
 
-Brief summary of what was used for the final model and what the validation accuracy was, and that it would be expected that the out of sample error would be a little less than this final validation test set accuracy.
+* A: Exactly according to specification
+* B: Throwing the elbows to the front
+* C: Lifting the dumbell only half way
+* D: Lowering the dumbell only half way
+* E: Throwing the hips to the front
 
+The dataset used for training the prediction model includes measurements collected from the accelerometers and corresponding lifting class outcomes ("classe" variable).
+
+After cleaning up the training dataset and dividing it further into a training set and validation set, the final model is trained using a random forest with 5-fold cross-validation. The validation set is used to predict the out-of-sample error, and in this case the model had an accuracy of about 98.9%, which is a 1.1% error rate. Thus the out-of-sample error on a prediction used on any further datasets would be just a little worse than 1%.
 
 ### Getting and Cleaning Data
 
@@ -21,14 +28,14 @@ and the test data set is downloaded from
 
 [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
 
-The data sets are loaded in to R, but it is important to note that for the remainder of this analysis, only the training data set is used. The testing data set is not used until the very final predictions once the model has been trained and built. While data cleaning is performed based on investigation of the training set, it is important that the same data cleaning is also applied to the test set for consistency.
+The data sets are loaded into R, but it is important to note that for the remainder of this analysis, only the training data set is used. The testing data set is not used until the very final predictions once the model has been trained and built. While data cleaning is performed based on investigation of the training set, it is important that the same data cleaning is also applied to the test set for consistency.
 
 ```{r, cache=TRUE}
 train_raw <- read.csv("pml-training.csv")
 test_raw <- read.csv("pml-testing.csv")
 ```
 
-Initial investigation of the training data set shows that there are 19622 observations and 160 possible variables. It is desirable to reduce the number of variables and remove any that will not contribute effectively to the training of the model. From the structure of the data set shown below, it can be seen that there are several variables that have missing values (NA).
+Initial investigation of the training dataset shows that there are 19622 observations and 160 possible variables. It is desirable to reduce the number of variables and remove any that will not contribute effectively to the training of the model. From the structure of the dataset shown below, it can be seen that there are several variables that have missing values (NA).
 
 ```{r}
 str(train_raw)
@@ -47,23 +54,33 @@ As can be seen from the above table, there are 93 variables that have zero missi
 train <- train_raw[ ,(na_percent < 0.97)]
 ```
 
-Additionally, since the outcome being predicted is related to movement, it is unlikely that any of the predictor variables that are not related to sensor measuements, such as the participant's name, will be helpful for the prediction. Therefore, the first seven columns of the data frame, which refer to the user name and id, as well as timestamp information, are removed.
+It is also desirable to remove any predictor variables that have zero variance (or near zero variance). These would be predictors that have very few unique values relative to the number of samples, and so have little information that can be used for prediction.
+
+```{r, cache = TRUE}
+predNZV <- nearZeroVar(train[ ,-93]) # don't want to include outcome variable, "classe"
+train <- train[ ,-predNZV]
+```
+
+Additionally, since the outcome being predicted is related to movement, it is unlikely that any of the predictor variables that are not related to sensor measuements, such as the participant's name, will be helpful for the prediction. Therefore, the first six columns of the data frame, which refer to the user name and id, as well as timestamp information, are removed.
 
 ```{r, cache=TRUE}
-train <- train[ , -c(1:7)]
+train <- train[ , -c(1:6)]
 dim(train)
 ```
 
-Now there are only 86 variables in the data set (including the outcome variable "classe"), down from the original 160. Recall that the same cleaning performed above on the training data set (removing variables with missing values and those not related to movement) is also performed on the testing data set for consistency.
+Now the train dataset has only 52 predictor variables plus the outcome variable "classe", down from the original 160. Recall that the same cleaning performed above on the training dataset is also performed on the testing dataset for consistency. That is the same variables that were removed from the raw train set must be removed from the raw test set, as well as the last variable in the test set which is "problem_id" and is not a relevant predictor variable.
 
 ```{r, cache=TRUE}
 test <- test_raw[ ,(na_percent < 0.97)]
-test <- test[, -c(1:7)]
+test <- test[ ,-predNZV]
+test <- test[, -c(1:6, 59)]
 ```
 
-### Training and Cross Validation
+### Training and Validation
 
-The first step for building the prediction model is to divide the cleaned train set into a training set and a validation set. This is done for the purpose of cross-validation. Models are trained on the training set and then then tuned based on the accuracy on the validation set. The train set is divided such that 60% of the data is allocated to a training set and 40% is allocated to a validation set.
+A random forest will be used to train the model. Random forest was chosen for its accuracy and because it can be used to assess variable importance for the model.
+
+The first step for building the prediction model is to divide the cleaned train set into a training set and a validation set. This is done for the purpose of cross-validation. Models are trained on the training set and then tuned based on the accuracy of the validation set. The train set is divided such that 60% of the data is allocated to a training set and 40% is allocated to a validation set.
 
 ```{r, cache=TRUE}
 library(caret)
@@ -73,24 +90,65 @@ validation <- train[-inTrain, ]
 dim(training); dim(validation)
 ```
 
-
-Choose model for training: going to choose Random Forest (why? what are it's benefits?)
-Start with a tree (faster), then try random forest. 
+As mentioned, the training data includes 52 predictor variables (and the one outcome variable), which is still quite a large number of variables, especially when there is also 11776 observations. First attempts of using random forest to train the model with the 52 variables could not even be completed on my computer, even with the use of parallelization (it ran over night and was still not done). Therefore, it is of significant interest to reduce the number of variables even futher, without losing prediction accuracey. In order to do this, a small subset of about 10% of the training data is trained with random forest, from which "important variables" of the model can then be determined.
 
 ```{r, cache=TRUE}
-set.seed(3642)
-modelrf <- train(classe ~ ., method = "rf", data = training, trControl = trainControl(method = "cv", number = 3, allowParallel = TRUE))
+inImpVars <- createDataPartition(training$classe, p = 0.1, list = FALSE)
+trainImpVars <- training[inImpVars, ]
+set.seed(1357)
+modelImpVars <- train(classe ~., method = "rf", data = trainImpVars)
 ```
+
+The plot below shows the relative importance of each of the predictor variables in the dataset. It can be seen that there are definitely some variables that have a much larger impact than others, and it is likely that only the top 50% of variables need be used for the model in order to still get an accurate result.
+
+```{r, cache=TRUE}
+ImpVars <- varImp(modelImpVars)
+plot(ImpVars)
+summary(ImpVars$importance)
+```
+
+From the summary of the variable importance, it can be seen that the average importance is just over 14. Therefore, since we only want to use the top 50% of variables, the training and validation datasets are further reduced by removing variables that are in the bottom 50% of importance to the model.
 
 ```{r}
-modelrf$finalModel
+training_red <- training[, ImpVars$importance > 14]
+str(training_red)
+validation_red <- validation[, ImpVars$importance > 14]
 ```
-Train once with rf on all variables (with cv already built in? bootstrap or k-fold?), look at the accuracy on the validation set.
 
-Look at what the important variables were. Maybe remove those variables from the train and validation set, and then re-run, and see if this helps the accuracy (maybe not overfitting now??).
+Now the model can be trained using the full number of observations (with the reduced number of variables). Note that cross-validation is used for the random forest, with number of folds chosen to be 5 (as folds between 3 to 10 are typical).
 
-### Analysis Summary
+```{r, cache=TRUE}
+set.seed(2468)
+modelrf <- train(classe ~ ., method = "rf", data = training_red, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+```
+
+With the model built, the validation dataset is used to estimate what the out-of-sample accuracy would be. From the prediction summary below, it can be seen that the validation prediction has an accuracy of about 98.9% (or an error of about 1.1%). Therefore, it is reasonable to assume that predictions on any other dataset would be a little bit worse than 1% error.
+
+```{r, cache=TRUE}
+modelrf$finalModel
+predVal <- predict(modelrf, validation_red)
+confusionMatrix(predVal, validation_red$classe)
+```
 
 ### Final Prediction
 
-When final model built, run on the test set, and get the accuracy. You can estimate this to be close to the out-of-sample accuracy of the model.
+The final model is run on the provided test set in order to make predictions on the lifting class.
+
+```{r, cache=TRUE}
+test_red <- test[ , ImpVars$importance > 14]
+predTest <- predict(modelrf, test_red)
+predTest
+```
+
+```{r}
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+setwd("./test_predictions")
+pml_write_files(predTest)
+setwd("./..")
+```
