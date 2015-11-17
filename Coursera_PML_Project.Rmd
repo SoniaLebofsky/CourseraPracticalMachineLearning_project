@@ -1,0 +1,96 @@
+---
+title: "Exercise Prediction"
+author: "SoniaLebofsky"
+output: html_document
+---
+
+### Executive Summary
+
+Brief explanation here of what the problem is asking for. 
+
+Brief summary of what was used for the final model and what the validation accuracy was, and that it would be expected that the out of sample error would be a little less than this final validation test set accuracy.
+
+
+### Getting and Cleaning Data
+
+The following analysis assumes that the data is downloaded into the same directory as the code. The training data set is downloaded from 
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) 
+
+and the test data set is downloaded from
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+The data sets are loaded in to R, but it is important to note that for the remainder of this analysis, only the training data set is used. The testing data set is not used until the very final predictions once the model has been trained and built. While data cleaning is performed based on investigation of the training set, it is important that the same data cleaning is also applied to the test set for consistency.
+
+```{r, cache=TRUE}
+train_raw <- read.csv("pml-training.csv")
+test_raw <- read.csv("pml-testing.csv")
+```
+
+Initial investigation of the training data set shows that there are 19622 observations and 160 possible variables. It is desirable to reduce the number of variables and remove any that will not contribute effectively to the training of the model. From the structure of the data set shown below, it can be seen that there are several variables that have missing values (NA).
+
+```{r}
+str(train_raw)
+```
+
+The first step is to examine the proportion of missing values for each variable.
+
+```{r}
+na_percent <- sapply(train_raw, function(x) sum(is.na(x))/length(x))
+table(na_percent)
+```
+
+As can be seen from the above table, there are 93 variables that have zero missing values, and there are 67 variables that have 98% missing values, which is an extremely large percentage of missing data. Therefore, the variables with the 98% missing data are removed from the data set, as it is totally unreasonable to impute such a large amount of missing data.
+
+```{r, cache=TRUE}
+train <- train_raw[ ,(na_percent < 0.97)]
+```
+
+Additionally, since the outcome being predicted is related to movement, it is unlikely that any of the predictor variables that are not related to sensor measuements, such as the participant's name, will be helpful for the prediction. Therefore, the first seven columns of the data frame, which refer to the user name and id, as well as timestamp information, are removed.
+
+```{r, cache=TRUE}
+train <- train[ , -c(1:7)]
+dim(train)
+```
+
+Now there are only 86 variables in the data set (including the outcome variable "classe"), down from the original 160. Recall that the same cleaning performed above on the training data set (removing variables with missing values and those not related to movement) is also performed on the testing data set for consistency.
+
+```{r, cache=TRUE}
+test <- test_raw[ ,(na_percent < 0.97)]
+test <- test[, -c(1:7)]
+```
+
+### Training and Cross Validation
+
+The first step for building the prediction model is to divide the cleaned train set into a training set and a validation set. This is done for the purpose of cross-validation. Models are trained on the training set and then then tuned based on the accuracy on the validation set. The train set is divided such that 60% of the data is allocated to a training set and 40% is allocated to a validation set.
+
+```{r, cache=TRUE}
+library(caret)
+inTrain <- createDataPartition(train$classe, p = 0.6, list = FALSE)
+training <- train[inTrain, ]
+validation <- train[-inTrain, ]
+dim(training); dim(validation)
+```
+
+
+Choose model for training: going to choose Random Forest (why? what are it's benefits?)
+Start with a tree (faster), then try random forest. 
+
+```{r, cache=TRUE}
+set.seed(3642)
+modelrf <- train(classe ~ ., method = "rf", data = training, trControl = trainControl(method = "cv", number = 3, allowParallel = TRUE))
+```
+
+```{r}
+modelrf$finalModel
+```
+Train once with rf on all variables (with cv already built in? bootstrap or k-fold?), look at the accuracy on the validation set.
+
+Look at what the important variables were. Maybe remove those variables from the train and validation set, and then re-run, and see if this helps the accuracy (maybe not overfitting now??).
+
+### Analysis Summary
+
+### Final Prediction
+
+When final model built, run on the test set, and get the accuracy. You can estimate this to be close to the out-of-sample accuracy of the model.
